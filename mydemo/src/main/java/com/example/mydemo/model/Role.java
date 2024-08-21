@@ -20,6 +20,26 @@ public class Role {
 
     private LocalDateTime updatedAt;
 
+    private String avatarPath;
+
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+
+    public String getAvatarPath() {
+        return avatarPath;
+    }
+    public void setAvatarPath(String avatarPath) {this.avatarPath=avatarPath;}
+
+
     // Getters and setters
     public Long getId() {
         return id;
@@ -60,4 +80,6 @@ public class Role {
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
     }
+
+
 }

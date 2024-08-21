@@ -49,10 +49,18 @@ public class RoleService {
                 .map(existingRole -> {
                     existingRole.setRoleName(newRole.getRoleName());
                     existingRole.setDescription(newRole.getDescription());
+
+                    // 只有在新角色提供的 avatarPath 不为空时才更新
+                    if (newRole.getAvatarPath() != null && !newRole.getAvatarPath().isEmpty()) {
+                        existingRole.setAvatarPath(newRole.getAvatarPath());
+                    }
+
                     return roleRepository.save(existingRole);
                 })
                 .orElseThrow(() -> new IllegalArgumentException("Role with ID " + id + " not found"));
     }
+
+
 
     public void deleteRole(Long id) {
         roleRepository.deleteById(id);

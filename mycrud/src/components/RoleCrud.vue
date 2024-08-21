@@ -12,28 +12,37 @@
     <div>
       <input v-model="newRole.roleName" placeholder="Enter role name">
       <input v-model="newRole.description" placeholder="Enter description">
+      <input type="file" @change="handleFileUpload"> <!-- 新增文件输入框 -->
       <button @click="createRole">Add Role</button>
     </div>
+
+    <!-- 表格显示 -->
     <table>
       <thead>
         <tr>
-          <th><input type="checkbox" @click="selectAllRoles($event)" /></th>
+          <th><input type="checkbox" @click="toggleAllSelections" :checked="isAllSelected"></th>
           <th>ID</th>
           <th>Role Name</th>
           <th>Description</th>
+          <th>Avatar</th> <!-- 新增头像列 -->
+          <th>Created At</th>
+          <th>Updated At</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="role in roles.content" :key="role.id">
-          <td><input type="checkbox" v-model="selectedRoles" :value="role.id"></td>
+          <td><input type="checkbox" :value="role.id" v-model="selectedRoles"></td>
+          <!-- 添加显示ID的列 -->
           <td>{{ role.id }}</td>
           <td v-if="!editMode || editRoleData.id !== role.id">{{ role.roleName }}</td>
-          <td v-if="!editMode || editRoleData.id !== role.id">{{ role.description }}</td>
           <td v-else>
             <input v-model="editRoleData.roleName" placeholder="Enter new role name">
-            <input v-model="editRoleData.description" placeholder="Enter new description">
           </td>
+          <td>{{ role.description }}</td>
+          <td><img v-if="role.avatarPath" :src="role.avatarPath" alt="Avatar" width="50"></td>
+          <td>{{ formatDate(role.createdAt) }}</td>
+          <td>{{ formatDate(role.updatedAt) }}</td>
           <td>
             <button v-if="editMode && editRoleData.id === role.id" @click="updateRole">Save</button>
             <button v-else @click="editRole(role)">Edit</button>
@@ -41,14 +50,11 @@
           </td>
         </tr>
       </tbody>
+
     </table>
+
     <button @click="batchDeleteRoles">Delete Selected Roles</button>
-    <div v-if="editMode">
-      <h3>Edit Role</h3>
-      <input v-model="editRoleData.roleName" placeholder="Enter new role name">
-      <input v-model="editRoleData.description" placeholder="Enter new description">
-      <button @click="updateRole">Save</button>
-    </div>
+
     <!-- Pagination Controls -->
     <div class="pagination">
       <button @click="previousPage" :disabled="currentPage === 0">Previous</button>
@@ -66,14 +72,21 @@ export default {
     return {
       roles: {}, // 用于存储分页数据
       selectedRoles: [],
-      newRole: { roleName: '', description: '' },
+      newRole: { roleName: '', description: '', avatarPath: '' },
       editMode: false,
-      editRoleData: { id: null, roleName: '', description: '' },
+      editRoleData: { id: null, roleName: '', description: '', avatarPath: '' },
+      originalAvatarPath: '', // 新增字段，用于保存原始的 avatarPath
       searchRoleName: '',
       searchedRole: null,
       currentPage: 0, // 当前页码
-      pageSize: 4 // 每页显示的条目数
+      pageSize: 4, // 每页显示的条目数
+      avatarFile: null // 存储选择的文件
     };
+  },
+  computed: {
+    isAllSelected() {
+      return this.roles.content && this.selectedRoles.length === this.roles.content.length;
+    }
   },
   methods: {
     fetchRoles() {
@@ -85,6 +98,13 @@ export default {
       })
       .then(response => {
         this.roles = response.data;
+        console.log(this.roles.content);
+        // 为每个角色设置完整的 Avatar URL
+        this.roles.content.forEach(role => {
+          if (role.avatarPath) {
+            role.avatarPath = `http://localhost:8080${role.avatarPath}`;
+          }
+        });
       });
     },
     searchRole() {
@@ -95,26 +115,81 @@ export default {
         this.searchedRole = response.data;
       });
     },
+    handleFileUpload(event) {
+      this.avatarFile = event.target.files[0]; // 保存选中的文件
+    },
     createRole() {
       axios.post('http://localhost:8080/api/roles', this.newRole)
-      .then(() => {
+      .then(response => {
+        const roleId = response.data.id; // 获取新创建的角色 ID
         this.newRole.roleName = '';
         this.newRole.description = '';
-        this.fetchRoles();
+        this.newRole.avatarPath = '';
+
+        if (this.avatarFile) {
+          this.uploadAvatar(roleId); // 如果选择了头像，上传头像
+        } else {
+          this.fetchRoles(); // 如果没有选择头像，直接刷新角色列表
+        }
+      })
+      .catch(error => {
+        console.error('Error creating role:', error);
       });
     },
+    uploadAvatar(roleId) {
+      const formData = new FormData();
+      formData.append('file', this.avatarFile);
+
+      axios.post(`http://localhost:8080/api/roles/upload-avatar/${roleId}`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      })
+      .then(response => {
+        // 确保更新后的 avatarPath 被保存
+        this.editRoleData.avatarPath = response.data; 
+        this.avatarFile = null;
+        this.editMode = false;
+        this.fetchRoles(); // 上传头像成功后刷新角色列表
+      })
+      .catch(error => {
+        console.error('Error uploading avatar:', error);
+      });
+    },
+
     editRole(role) {
       this.editMode = true;
       this.editRoleData = { ...role };
+      this.originalAvatarPath = role.avatarPath; // 保存原始的 avatarPath
     },
     updateRole() {
-      axios.put(`http://localhost:8080/api/roles/${this.editRoleData.id}`, this.editRoleData)
+    const updatedRole = {
+      roleName: this.editRoleData.roleName,
+      description: this.editRoleData.description,
+    };
+
+    // 如果用户选择了新的头像文件，则包含 avatarPath
+    if (this.avatarFile) {
+      updatedRole.avatarPath = this.editRoleData.avatarPath;
+    }
+
+    axios.put(`http://localhost:8080/api/roles/${this.editRoleData.id}`, updatedRole)
       .then(() => {
-        this.editMode = false;
-        this.editRoleData = { id: null, roleName: '', description: '' };
-        this.fetchRoles();
+        if (this.avatarFile) {
+          this.uploadAvatar(this.editRoleData.id); // 如果选择了头像，上传头像
+        } else {
+          this.editMode = false;
+          this.editRoleData = { id: null, roleName: '', description: '', avatarPath: '' };
+          this.avatarFile = null;
+          this.fetchRoles(); // 直接刷新角色列表
+        }
+      })
+      .catch(error => {
+        console.error('Error updating role:', error);
       });
-    },
+  },
+
+
     deleteRole(id) {
       axios.delete(`http://localhost:8080/api/roles/${id}`)
       .then(() => {
@@ -130,6 +205,14 @@ export default {
         this.fetchRoles();
       });
     },
+    toggleAllSelections() {
+      if (this.isAllSelected) {
+        this.selectedRoles = [];
+      } else {
+        this.selectedRoles = this.roles.content.map(role => role.id);
+      }
+    },
+    // 分页控件的操作方法
     nextPage() {
       if (this.currentPage < this.roles.totalPages - 1) {
         this.currentPage++;
@@ -142,8 +225,11 @@ export default {
         this.fetchRoles();
       }
     },
-    selectAllRoles(event) {
-      this.selectedRoles = event.target.checked ? this.roles.content.map(role => role.id) : [];
+    // 日期格式化方法
+    formatDate(date) {
+      if (!date) return '';
+      const options = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
+      return new Date(date).toLocaleDateString('zh-CN', options);
     }
   },
   created() {
@@ -153,6 +239,18 @@ export default {
 </script>
 
 <style scoped>
+button {
+  margin-left: 10px;
+}
+input {
+  margin-bottom: 10px;
+}
+.pagination {
+  margin-top: 20px;
+}
+.pagination button {
+  margin: 0 5px;
+}
 table {
   width: 100%;
   border-collapse: collapse;
@@ -171,17 +269,5 @@ th {
 
 td {
   text-align: center;
-}
-
-button {
-  margin-left: 10px;
-}
-
-.pagination {
-  margin-top: 20px;
-}
-
-.pagination button {
-  margin: 0 5px;
 }
 </style>
